@@ -1,0 +1,6 @@
+__pycache__
+Images/.DS_Store
+bak/*local.py
+bak/__init__.py
+*DS*
+*log
