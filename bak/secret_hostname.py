@@ -1,1 +1,0 @@
-hostname = 'AD Hostname'

@@ -4,7 +4,7 @@ certifi==2022.12.7
 cffi==1.15.1
 charset-normalizer==3.0.1
 cryptography==39.0.0
-Cython==0.29.33
+#Cython==0.29.33
 dnspython==2.3.0
 h11==0.14.0
 httpcore==0.16.3

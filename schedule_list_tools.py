@@ -6,7 +6,7 @@ import datetime
 
 
 pwd = os.getcwd()
-target_file = f"{pwd}/schedule_list.txt"
+target_file = f"{pwd}/mountdir/schedule_list.txt"
 
 def Time_Check(time):
     now = datetime.datetime.now()

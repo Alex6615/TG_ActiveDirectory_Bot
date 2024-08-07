@@ -1,29 +1,78 @@
-import os 
 import time
 import datetime
 import multiprocessing as mp
 import requests
 import json
-
+import html
 import logging
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import Updater, ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler
+import traceback
 
+
+# Enable logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+# set higher logging level for httpx to avoid all GET and POST requests being logged
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+logger = logging.getLogger(__name__)
+
+# This can be your own ID, or one for a developer group/channel.
+# You can use the /start command of this bot to see your chat id.
+DEVELOPER_CHAT_ID = -1002189363889
+
+import traceback
+from telegram.constants import ParseMode
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.constants import ParseMode
+from telegram.ext import Updater, ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler
 from account_api import ActiveDirectory
 from time_tools import timeisformatted
 from schedule_list_tools import Write_task, Cleanup_tasks, Sort_tasks, Get_First_task, Delete_First_task
 
+# ENV
+import os
+DEVELOPER_CHAT_ID = os.getenv(key='DEVELOPER_CHAT_ID')
+TELEGRAM_TOKEN = os.getenv(key='TELEGRAM_TOKEN')
+MIS_ALERT = os.getenv(key='MIS_ALERT')
+HOST16 = os.getenv(key='HOST16')
+HOST34 = os.getenv(key='HOST34')
 
-try :
-    from secret_telegram import TELEGRAM_TOKEN, MIS_ALERT
-    from secret_account import allow_groups
-except :
-    from bak.secret_telegram import TELEGRAM_TOKEN, MIS_ALERT
-    from bak.secret_account import allow_groups
+from allow import allow_groups
 
 
-#t_token = os.getenv("TELEGRAM_TOKEN")
-t_token = TELEGRAM_TOKEN
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a telegram message to notify the developer."""
+    # Log the error before we do anything else, so we can see it even if something breaks.
+    logger.error("Exception while handling an update:", exc_info=context.error)
+
+    # traceback.format_exception returns the usual python message about an exception, but as a
+    # list of strings rather than a single string, so we have to join them together.
+    tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
+    tb_string = "".join(tb_list)
+
+    # Build the message with some markup and additional information about what happened.
+    # You might need to add some logic to deal with messages longer than the 4096 character limit.
+    update_str = update.to_dict() if isinstance(update, Update) else str(update)
+    message = (
+        "An exception was raised while handling an update\n"
+        f"<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}"
+        "</pre>\n\n"
+        f"<pre>context.chat_data = {html.escape(str(context.chat_data))}</pre>\n\n"
+        f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n"
+        f"<pre>{html.escape(tb_string)}</pre>"
+    )
+
+    # Finally, send the message
+    await context.bot.send_message(
+        chat_id=DEVELOPER_CHAT_ID, text=message, parse_mode=ParseMode.HTML
+    )
+
+
+async def bad_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Raise an error to trigger the error handler."""
+    await context.bot.wrong_method_name()  # type: ignore[attr-defined]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.chat.id not in allow_groups :
@@ -387,24 +436,29 @@ async def normal_level2(update: Update, context: ContextTypes.DEFAULT_TYPE):
     callback_data = update.callback_query.data
     method = callback_data.split('-')[0]
     target = callback_data.split('-')[1]
-    activedirectory = ActiveDirectory()
-    if method == "disable" :
-        result = activedirectory.Account_disabler(target)
-    elif method == "enable" :
-        result = activedirectory.Account_enabler(target)
-    elif method == "unlock" :
-        result = activedirectory.Account_unlocker(target)
-    elif method == "reset" :
-        result = activedirectory.Account_Password_Reset(target)
-    elif method == "expiredate" :
-        result = activedirectory.Account_expire_date(target)
+    if method == "unlock" or method == "reset":
+        activedirectory = ActiveDirectory(host=HOST16)
+        if method == "unlock" :
+            result = activedirectory.Account_unlocker(target)
+        elif method == "reset" :
+            result = activedirectory.Account_Password_Reset(target)
     else :
-        result = "ERROR !"
+        activedirectory = ActiveDirectory()
+        if method == "disable" :
+            result = activedirectory.Account_disabler(target)
+        elif method == "enable" :
+            result = activedirectory.Account_enabler(target)
+        elif method == "unlock" :
+            result = activedirectory.Account_unlocker(target)
+        elif method == "expiredate" :
+            result = activedirectory.Account_expire_date(target)
+        else :
+            result = "ERROR !"
+    activedirectory.__del__()
     await update.callback_query.edit_message_text(
         text=f"<b>{result}</b>",
         parse_mode="HTML"
     )
-
 
 async def expiredate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.chat.id not in allow_groups :
@@ -413,6 +467,7 @@ async def expiredate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     account_name = " ".join(context.args)
     ad = ActiveDirectory()
     result = ad.Account_expire_date(account_name)
+    ad.__del__()
     await context.bot.send_message(chat_id=update.effective_chat.id, text=result)
 
 async def unlock(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -420,8 +475,9 @@ async def unlock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Group {update.message.chat.id} not allow !")
         return
     account_name = " ".join(context.args)
-    ad = ActiveDirectory()
+    ad = ActiveDirectory(host=HOST16)
     result = ad.Account_unlocker(account_name)
+    ad.__del__()
     await context.bot.send_message(chat_id=update.effective_chat.id, text=result)
 
 async def disable(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -431,6 +487,7 @@ async def disable(update: Update, context: ContextTypes.DEFAULT_TYPE):
     account_name = " ".join(context.args)
     ad = ActiveDirectory()
     result = ad.Account_disabler(account_name)
+    ad.__del__()
     await context.bot.send_message(chat_id=update.effective_chat.id, text=result)
 
 async def enable(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -440,6 +497,7 @@ async def enable(update: Update, context: ContextTypes.DEFAULT_TYPE):
     account_name = " ".join(context.args)
     ad = ActiveDirectory()
     result = ad.Account_enabler(account_name)
+    ad.__del__()
     await context.bot.send_message(chat_id=update.effective_chat.id, text=result)
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -447,8 +505,9 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Group {update.message.chat.id} not allow !")
         return
     account_name = " ".join(context.args)
-    ad = ActiveDirectory()
+    ad = ActiveDirectory(host=HOST16)
     result = ad.Account_Password_Reset(account_name)
+    ad.__del__()
     await context.bot.send_message(chat_id=update.effective_chat.id, text=result)
 
 async def schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -509,14 +568,14 @@ async def schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def end(update: Update, context: ContextTypes.DEFAULT_TYPE):
     #print(update.callback_query.message.chat_id)
     await update.callback_query.edit_message_text(
-        text="⚠️ Session Closed",
+        text="Closed",
         parse_mode="HTML"
     )
 
 def Queue_loop():
     while True :
-        with open('logging.log', 'a') as fd:
-            fd.write('looping\n')
+        #with open('mountdir/logging.log', 'a') as fd:
+            #fd.write('looping\n')
         # print('looping')
         try :
             Cleanup_tasks()
@@ -547,7 +606,7 @@ def Queue_loop():
             req.close()
             Delete_First_task()
         except Exception as e :
-            with open('logging.log', 'a') as fd:
+            with open('mountdir/logging.log', 'a') as fd:
                 fd.write(f"{e}\n")  
         time.sleep(30)
 
@@ -556,7 +615,7 @@ async def debug(update, context):
     print(update.callback_query.data)
 
 def Activate_bot():
-    with open('logging.log', 'a') as f:
+    with open('mountdir/logging.log', 'a') as f:
         f.write('bot start\n')
     start_handler = CommandHandler('start', start)
     ad_handler = CommandHandler('ad', ad)
@@ -566,8 +625,9 @@ def Activate_bot():
     enable_handler = CommandHandler('enable', enable)
     reset_handler = CommandHandler('reset', reset)
     schedule_handler = CommandHandler('schedule', schedule)
-    application = ApplicationBuilder().token(t_token).build()
+    application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     application.add_handler(start_handler)
+    application.add_handler(CommandHandler("bad_command", bad_command))
     application.add_handler(ad_handler)
     application.add_handler(expiredate_handler)
     application.add_handler(unlock_handler)
@@ -590,9 +650,11 @@ def Activate_bot():
     application.add_handler(CallbackQueryHandler(schedule_submit, pattern=f"^schedule-(disable|enable|unlock)-.*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-2][0-9]:00$"))
 
 
-
+    # ...and the error handler
+    application.add_error_handler(error_handler)
     application.add_handler(CallbackQueryHandler(debug, pattern=f".*"))
-    application.run_polling()
+
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
     
 
 def main():

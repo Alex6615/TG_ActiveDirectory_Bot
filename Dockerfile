@@ -20,9 +20,9 @@ RUN apk --update \
 COPY . /ADUser_unlock
 WORKDIR /ADUser_unlock
 RUN pip3 install -r requirements.txt
-RUN python3 /ADUser_unlock/bak/setup.py build_ext --inplace
-RUN rm -rf /ADUser_unlock/bak
-RUN rm -rf /ADUser_unlock/build
+#RUN python3 /ADUser_unlock/bak/setup.py build_ext --inplace
+#RUN rm -rf /ADUser_unlock/bak
+#RUN rm -rf /ADUser_unlock/build
 RUN rm -r ~/.cache/pip    
 
 # Listen port
